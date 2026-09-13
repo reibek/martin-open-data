@@ -22,6 +22,10 @@ const FINANCIALS_LOOKBACK_YEARS = 3
 const TENDER_VALUES_PER_RUN = 60
 const TENDER_VALUE_FLUSH_EVERY = 10
 
+/** Same circuit breaker as the IČO pass, for the same reason: a dead upstream
+ * must cost its own source, not the whole nightly job. */
+const TENDER_FAILURES_BEFORE_GIVING_UP = 5
+
 /**
  * Register-style sources: city financial statements, public procurement,
  * national statistics and election results.
@@ -343,6 +347,8 @@ async function enrichTenderValues(
     buffer = []
   }
 
+  let consecutiveFailures = 0
+
   for (const row of pending) {
     const uvoId = Number(row.uvo_id)
     try {
@@ -352,10 +358,18 @@ async function enrichTenderValues(
         value?.estimatedValueEur ?? null,
         value?.noticeCode ?? null,
       ])
+      consecutiveFailures = 0
       if (value) priced += 1
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.log(`  tender ${uvoId} failed: ${message}`)
+      consecutiveFailures += 1
+      if (consecutiveFailures >= TENDER_FAILURES_BEFORE_GIVING_UP) {
+        console.log(
+          `  uvo: ${consecutiveFailures} failures in a row — abandoning the pricing pass`
+        )
+        break
+      }
     }
     if (buffer.length >= TENDER_VALUE_FLUSH_EVERY) await flush()
   }

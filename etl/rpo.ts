@@ -20,6 +20,18 @@ const TRADE_LICENCE_REGISTER = "2"
 const MAX_LOOKUPS_PER_RUN = 250
 const FLUSH_EVERY = 25
 
+/**
+ * Give up on the whole pass after this many consecutive failures.
+ *
+ * Without it a dead upstream costs the entire job: when api.statistics.sk
+ * stopped answering — TCP connect in 0.1 s, then silence — every lookup burned
+ * its full 30 s timeout, nothing reached the buffer so nothing ever flushed,
+ * and 250 of those is over two hours of achieving nothing. The run would hit
+ * the CI timeout with the registers and the GIS layers never reached. One
+ * source being down must cost that source, not the night.
+ */
+const CONSECUTIVE_FAILURES_BEFORE_GIVING_UP = 5
+
 export type IcoMatch = {
   normKey: string
   matched: boolean
@@ -147,16 +159,26 @@ export async function resolveMissing(
   let attempted = 0
   let matched = 0
 
+  let consecutiveFailures = 0
+
   for (const supplier of batch) {
     try {
       const match = await resolveIco(supplier.normKey, supplier.displayName)
       buffer.push(match)
+      consecutiveFailures = 0
       if (match.matched) matched += 1
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.log(
         `  rpo lookup failed for "${supplier.displayName}": ${message}`
       )
+      consecutiveFailures += 1
+      if (consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_GIVING_UP) {
+        console.log(
+          `  rpo: ${consecutiveFailures} failures in a row — abandoning the pass, the register is unreachable`
+        )
+        break
+      }
     }
     attempted += 1
 
