@@ -33,7 +33,12 @@ import {
 import { formatCount, formatDate, formatEurExact } from "@/lib/format"
 import { searchCounts, searchDocuments, type SearchTable } from "@/lib/queries"
 
-export const revalidate = 3600
+// Five minutes, not an hour. The data lands in bursts — the nightly ETL fills
+// several tables at once — and there is no cache invalidation hook, so an
+// hour-long window meant the site served an empty state long after the
+// database had the rows. At this traffic a short window costs nothing and
+// Neon scales to zero between requests anyway.
+export const revalidate = 300
 
 const PAGE_SIZE = 25
 
