@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: martin-open-data-db
+    environment:
+      POSTGRES_USER: martin
+      POSTGRES_PASSWORD: martin
+      POSTGRES_DB: martin
+    ports:
+      - "54329:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U martin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
