@@ -149,13 +149,32 @@ async function loadFinancials(pool: Pool): Promise<Record<string, unknown>> {
 
 async function loadProcurement(pool: Pool): Promise<Record<string, unknown>> {
   console.log(`Fetching ÚVO tenders for ${UVO_AUTHORITIES.length} authorities…`)
+  const { rows: storedRows } = await pool.query<{
+    authority_ico: string
+    total: number
+  }>(
+    "select authority_ico, count(*)::int as total from uvo_tenders group by authority_ico"
+  )
+  const stored = new Map(
+    storedRows.map((row) => [row.authority_ico, row.total])
+  )
+
   const tenders = []
   const perAuthority: Record<string, number> = {}
+  const emptied: string[] = []
   for (const authority of UVO_AUTHORITIES) {
     const found = await fetchUvoTenders(authority.ico, authority.label)
     perAuthority[authority.label] = found.length
     tenders.push(...found)
     console.log(`  ${authority.label}: ${found.length}`)
+    // ÚVO keeps a tender listed for good, so an authority falling from N to
+    // zero is the listing failing, not the tenders vanishing. From 18 Sep 2026
+    // the CI runner got zero for Mesto Martin (223 stored) on every run and the
+    // step still reported success.
+    const known = stored.get(authority.ico) ?? 0
+    if (found.length === 0 && known > 0) {
+      emptied.push(`${authority.label} (${known} stored)`)
+    }
   }
 
   const client = await pool.connect()
@@ -193,6 +212,12 @@ async function loadProcurement(pool: Pool): Promise<Record<string, unknown>> {
     throw error
   } finally {
     client.release()
+  }
+
+  // The authorities that did answer are stored above; the empty ones are
+  // reported as a failure rather than as "0 tenders".
+  if (emptied.length > 0) {
+    throw new Error(`uvo listing answered 0 records for ${emptied.join(", ")}`)
   }
 
   // Per-tender detail (status, procedure type, CPV codes) exists in etl/uvo.ts

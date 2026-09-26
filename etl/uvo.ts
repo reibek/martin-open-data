@@ -306,7 +306,18 @@ export async function fetchUvoTenders(
       `uvo tenders ${label}: no "N záznamov" counter — pagination markup changed`
     )
   }
-  if (expected === 0) return []
+  if (expected === 0) {
+    // Logged because ÚVO answers this "no records" page in bursts for
+    // authorities that do have tenders — seen from CI daily since 18 Sep 2026
+    // and locally on 26 Sep, while the same URL answered normally minutes later.
+    const title = first.match(/<title>([^<]*)<\/title>/)?.[1]?.trim()
+    console.log(
+      `  uvo tenders ${label}: listing reports 0 records ` +
+        `(${first.length} B, title "${title ?? "?"}", ` +
+        `${first.includes(NO_RECORDS) ? "no-records message" : "empty counter"})`
+    )
+    return []
+  }
   assertListingHeader(first, label)
 
   // The page count is derived from the advertised total and the size of page
