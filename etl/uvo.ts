@@ -596,6 +596,15 @@ export async function fetchUvoNoticeValue(
     `/vestnik-a-registre/vestnik/oznamenie/detail/${noticeId}`
   )
   const text = clean(html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ""))
+  // Some notice types (IPS, VST, IOX seen) are published only as a PDF: the
+  // page has a download link and no body, so no "Vestník č." header either.
+  // Treating that as a markup change failed the same five tenders every day.
+  if (
+    !/Vestník č\./.test(text) &&
+    text.includes("Obsah oznámenia vo formáte PDF")
+  ) {
+    return null
+  }
   if (!/Vestník č\./.test(text)) {
     throw new Error(
       `uvo notice ${noticeId}: no "Vestník č." header — notice markup changed`

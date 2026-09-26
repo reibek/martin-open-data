@@ -9,6 +9,7 @@ export const MARTIN_GAUGES = [6130, 6140] as const
 export type HydroStation = { stationId: number; name: string }
 export type HydroReading = {
   stationId: number
+  /** Naive Bratislava wall-clock time; the loader converts it in Postgres. */
   measuredAt: string
   levelCm: number
 }
@@ -22,6 +23,12 @@ export type HydroReading = {
  *
  * The flood-stage series (1.SPA/2.SPA/3.SPA) are present but empty outside
  * flood events, so thresholds are deliberately not extracted.
+ *
+ * The `ms` values are NOT real epoch milliseconds. The chart runs with
+ * `useUTC: true` and SHMU encodes Bratislava wall-clock time as if it were
+ * UTC: at 17:17 UTC on 26 Sep 2026 the newest point decoded to 19:15 "UTC",
+ * matching the page's own "26.9.2026 19:15". Read as epoch, every reading was
+ * stored two hours in the future until that date.
  */
 export async function fetchGauge(
   stationId: number
@@ -52,16 +59,19 @@ export async function fetchGauge(
     )
   }
 
-  const readings: HydroReading[] = []
+  // Keyed by time because wall-clock time repeats an hour when DST ends, and
+  // two rows with one key in a single upsert batch make Postgres reject it.
+  const byTime = new Map<string, HydroReading>()
   for (const point of series[1].matchAll(/\[(\d{12,13}),\s*(-?[0-9.]+)\]/g)) {
     const level = Number(point[2])
     if (!Number.isFinite(level)) continue
-    readings.push({
-      stationId,
-      measuredAt: new Date(Number(point[1])).toISOString(),
-      levelCm: level,
-    })
+    const measuredAt = new Date(Number(point[1]))
+      .toISOString()
+      .slice(0, 19)
+      .replace("T", " ")
+    byTime.set(measuredAt, { stationId, measuredAt, levelCm: level })
   }
+  const readings = [...byTime.values()]
 
   if (readings.length === 0) {
     throw new Error(`hydro ${stationId}: series parsed but held no points`)

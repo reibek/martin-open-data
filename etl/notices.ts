@@ -24,26 +24,37 @@ export type Notice = {
   link: string
   title: string
   description: string | null
-  /** Naive local timestamp; the loader converts it using Europe/Bratislava. */
+  /**
+   * Carries an explicit offset when the feed states one; a naive value is
+   * local time and the loader converts it using Europe/Bratislava.
+   */
   publishedAt: string
 }
 
 /**
- * The feed emits "Fri, 11 Sep 2026 12:26" — no seconds and, crucially, no
- * timezone. Parsing it with `new Date()` would silently adopt the runner's
- * timezone (UTC on CI), so the naive value is kept and converted in Postgres.
+ * The feed emits "Fri, 25 Sep 2026 11:15:57 GMT", and the GMT is real: read as
+ * UTC, 118 of 122 stored notices fall between 07:00 and 15:59 Bratislava time
+ * — office hours — while read as local time 12 of them would be posted between
+ * 5 and 7 a.m. It was ignored until 26 Sep 2026, which put every notice two
+ * hours early. A zone-less value is still taken as local time, and parsing is
+ * left to Postgres because `new Date()` would adopt the runner's timezone.
  */
 function parsePubDate(raw: string): string | null {
   const match = raw
     ?.trim()
     .match(
-      /^(?:\w{3},\s*)?(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/
+      /^(?:\w{3},\s*)?(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?(?:\s+(GMT|UTC?|Z|[+-]\d{4}))?/
     )
   if (!match) return null
-  const [, day, monthName, year, hour, minute, second] = match
+  const [, day, monthName, year, hour, minute, second, zone] = match
   const month = MONTHS[monthName.toLowerCase()]
   if (!month) return null
-  return `${year}-${month}-${day.padStart(2, "0")} ${hour}:${minute}:${second ?? "00"}`
+  const offset = !zone
+    ? ""
+    : /^[+-]/.test(zone)
+      ? `${zone.slice(0, 3)}:${zone.slice(3)}`
+      : "+00"
+  return `${year}-${month}-${day.padStart(2, "0")} ${hour}:${minute}:${second ?? "00"}${offset}`
 }
 
 function stripHtml(value: unknown): string | null {

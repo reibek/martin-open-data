@@ -101,8 +101,8 @@ async function main(): Promise<void> {
     await attempt("notices", async () => {
       const notices = await fetchNotices()
       await inTransaction(pool, async (client) => {
-        // The RSS feed publishes naive local timestamps; this makes Postgres
-        // resolve them (and their DST offset) correctly on insert.
+        // A timestamp without an offset is local time; this makes Postgres
+        // resolve it (and its DST offset) correctly on insert.
         await client.query("set local time zone 'Europe/Bratislava'")
         await upsertBatched(
           client,
@@ -125,6 +125,8 @@ async function main(): Promise<void> {
     await attempt("hydro", async () => {
       const gauges = await fetchMartinGauges()
       await inTransaction(pool, async (client) => {
+        // SHMU gauge times are naive Bratislava wall-clock time (see hydro.ts).
+        await client.query("set local time zone 'Europe/Bratislava'")
         await upsertBatched(
           client,
           "hydro_stations",
