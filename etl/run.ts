@@ -218,14 +218,15 @@ async function main(): Promise<void> {
     // every daily run from 18 to 26 Sep 2026 lost its procurement step that
     // way or to an empty listing. A red run for an upstream nobody here can fix
     // would teach everyone to ignore red; it gets an Actions warning instead.
-    const isUvo = (step: { name: string }) => step.name === "procurement"
+    const isUvo = (step: { name: string }) =>
+      step.name === "procurement" || step.name === "tender values"
     const blocking = failedSteps.filter((step) => !isUvo(step))
     for (const step of failedSteps.filter(isUvo)) {
       const message = step.message
         .replace(/%/g, "%25")
         .replace(/\r/g, "%0D")
         .replace(/\n/g, "%0A")
-      console.log(`::warning title=ÚVO procurement not refreshed::${message}`)
+      console.log(`::warning title=ÚVO ${step.name} not refreshed::${message}`)
     }
 
     await pool.query(

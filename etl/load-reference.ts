@@ -373,6 +373,8 @@ async function enrichTenderValues(
   }
 
   let consecutiveFailures = 0
+  let failures = 0
+  let abandoned = false
 
   for (const row of pending) {
     const uvoId = Number(row.uvo_id)
@@ -388,11 +390,13 @@ async function enrichTenderValues(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.log(`  tender ${uvoId} failed: ${message}`)
+      failures += 1
       consecutiveFailures += 1
       if (consecutiveFailures >= TENDER_FAILURES_BEFORE_GIVING_UP) {
         console.log(
           `  uvo: ${consecutiveFailures} failures in a row — abandoning the pricing pass`
         )
+        abandoned = true
         break
       }
     }
@@ -405,5 +409,12 @@ async function enrichTenderValues(
     attempted: pending.length,
     priced,
     stillUnpriced: Number(remaining) - pending.length,
+    // A `failed` key is what marks a step as failed in etl_runs and the run
+    // summary. Without it the pass failed the same tenders daily, unseen.
+    ...(failures > 0 && {
+      failed:
+        `${failures} of ${pending.length} tenders could not be priced` +
+        (abandoned ? ", pass abandoned" : ""),
+    }),
   }
 }
