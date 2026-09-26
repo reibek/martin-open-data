@@ -213,10 +213,11 @@ async function main(): Promise<void> {
         ? [{ name, message: String(value.failed) }]
         : []
     )
-    // Except ÚVO: it serves GitHub-hosted runners a "Nedostupne" stub for pages
-    // that answer normally from a Slovak IP (measured 26 Sep 2026), so there it
-    // fails most days for a reason no code change fixes. A daily red run would
-    // teach everyone to ignore red; it gets an Actions warning instead.
+    // Except ÚVO: it intermittently serves GitHub-hosted runners a
+    // "Nedostupne" stub for pages that answer normally from a Slovak IP, and
+    // every daily run from 18 to 26 Sep 2026 lost its procurement step that
+    // way or to an empty listing. A red run for an upstream nobody here can fix
+    // would teach everyone to ignore red; it gets an Actions warning instead.
     const isUvo = (step: { name: string }) => step.name === "procurement"
     const blocking = failedSteps.filter((step) => !isUvo(step))
     for (const step of failedSteps.filter(isUvo)) {
