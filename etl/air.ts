@@ -19,7 +19,8 @@ type RawSeries = {
   station_id: number
   data: {
     dt: number
-    value: number | null
+    /** Usually a number, but SHMU sometimes sends a text marker such as "PDL". */
+    value: number | string | null
     pollutant_id: string
     limit_level: number | null
   }[]
@@ -85,8 +86,15 @@ export async function fetchStation(stationId: number): Promise<Station> {
  * SHMU serves a rolling ~24-hour window (25 hourly points per pollutant), so
  * this must run several times a day for the stored history to stay unbroken.
  * Readings with a null value are gaps in measurement and are dropped.
+ *
+ * So are text markers in place of a number. SHMU sent "PDL" in `value` between
+ * 15 and 24 Sep 2026, and each one aborted the live run with Postgres
+ * "invalid input syntax for type double precision". They are counted, not
+ * stored: a chart gap is honest, a guessed number is not.
  */
-export async function fetchReadings(stationId: number): Promise<AirReading[]> {
+export async function fetchReadings(
+  stationId: number
+): Promise<{ readings: AirReading[]; skipped: number }> {
   const series = await getJson<RawSeries[]>(
     `${DATA_URL}?station=${stationId}`,
     "air readings"
@@ -99,13 +107,21 @@ export async function fetchReadings(stationId: number): Promise<AirReading[]> {
     throw new Error("air readings: source schema changed, `data` missing")
   }
 
-  return points
-    .filter((point) => point.value !== null)
-    .map((point) => ({
+  const readings: AirReading[] = []
+  let skipped = 0
+  for (const point of points) {
+    if (point.value === null) continue
+    if (typeof point.value !== "number" || !Number.isFinite(point.value)) {
+      skipped += 1
+      continue
+    }
+    readings.push({
       stationId,
       pollutant: point.pollutant_id,
       measuredAt: new Date(point.dt * 1000).toISOString(),
-      value: point.value as number,
+      value: point.value,
       limitLevel: point.limit_level,
-    }))
+    })
+  }
+  return { readings, skipped }
 }

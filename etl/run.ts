@@ -205,11 +205,25 @@ async function main(): Promise<void> {
       gis,
       durationMs: Date.now() - startedAt,
     }
+    // A failed reference step has already been isolated and its error kept in
+    // `detail`, but a green Actions run hid ÚVO failing for days, so the run
+    // is recorded as 'partial' and exits non-zero.
+    const failedSteps = Object.entries(reference)
+      .filter(
+        ([, value]) =>
+          typeof value === "object" && value !== null && "failed" in value
+      )
+      .map(([name]) => name)
+
     await pool.query(
-      `update etl_runs set status = 'ok', finished_at = now(), detail = $2 where id = $1`,
-      [runId, detail]
+      `update etl_runs set status = $3, finished_at = now(), detail = $2 where id = $1`,
+      [runId, detail, failedSteps.length > 0 ? "partial" : "ok"]
     )
-    console.log(`Done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
+    console.log(
+      `Done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s` +
+        (failedSteps.length > 0 ? ` — FAILED: ${failedSteps.join(", ")}` : "")
+    )
+    if (failedSteps.length > 0) process.exitCode = 1
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await pool.query(
