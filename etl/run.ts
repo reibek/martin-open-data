@@ -208,12 +208,24 @@ async function main(): Promise<void> {
     // A failed reference step has already been isolated and its error kept in
     // `detail`, but a green Actions run hid ÚVO failing for days, so the run
     // is recorded as 'partial' and exits non-zero.
-    const failedSteps = Object.entries(reference)
-      .filter(
-        ([, value]) =>
-          typeof value === "object" && value !== null && "failed" in value
-      )
-      .map(([name]) => name)
+    const failedSteps = Object.entries(reference).flatMap(([name, value]) =>
+      typeof value === "object" && value !== null && "failed" in value
+        ? [{ name, message: String(value.failed) }]
+        : []
+    )
+    // Except ÚVO: it serves GitHub-hosted runners a "Nedostupne" stub for pages
+    // that answer normally from a Slovak IP (measured 26 Sep 2026), so there it
+    // fails most days for a reason no code change fixes. A daily red run would
+    // teach everyone to ignore red; it gets an Actions warning instead.
+    const isUvo = (step: { name: string }) => step.name === "procurement"
+    const blocking = failedSteps.filter((step) => !isUvo(step))
+    for (const step of failedSteps.filter(isUvo)) {
+      const message = step.message
+        .replace(/%/g, "%25")
+        .replace(/\r/g, "%0D")
+        .replace(/\n/g, "%0A")
+      console.log(`::warning title=ÚVO procurement not refreshed::${message}`)
+    }
 
     await pool.query(
       `update etl_runs set status = $3, finished_at = now(), detail = $2 where id = $1`,
@@ -221,9 +233,11 @@ async function main(): Promise<void> {
     )
     console.log(
       `Done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s` +
-        (failedSteps.length > 0 ? ` — FAILED: ${failedSteps.join(", ")}` : "")
+        (failedSteps.length > 0
+          ? ` — FAILED: ${failedSteps.map((step) => step.name).join(", ")}`
+          : "")
     )
-    if (failedSteps.length > 0) process.exitCode = 1
+    if (blocking.length > 0) process.exitCode = 1
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await pool.query(
